@@ -13,5 +13,5 @@ Requirements
 ```
 docker-compose up -d
 localstack config validate
-http://localhost:4566/health
+curl http://localhost:4566/health
 ```
