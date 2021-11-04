@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -8,20 +9,25 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"github.com/google/uuid"
 
 	petname "github.com/dustinkirkland/golang-petname"
 )
 
+type Pet struct {
+	UUID string
+	Age  int
+	Name string
+}
+
 const S3Endpoint = "http://localhost:4566"
 
 var table string
-
-func randomPetName() string {
-	return petname.Generate(2, "-")
-}
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
@@ -75,9 +81,47 @@ func main() {
 
 	_, err := dynamo.CreateTable(tableCreate)
 	if err != nil {
-		log.Fatalf("Oh no! %s", err)
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case dynamodb.ErrCodeResourceInUseException:
+				fmt.Println(err, table)
+			}
+		} else {
+			log.Fatalf("Oh no! %s", err)
+		}
+	} else {
+		fmt.Println("Created the table", table)
 	}
 
-	fmt.Println("Created the table", table)
+	item := Pet{
+		UUID: uuid.NewString(),
+		Age:  rand.Intn(100),
+		Name: randomPetName(),
+	}
 
+	av, err := dynamodbattribute.MarshalMap(item)
+	if err != nil {
+		log.Fatalln("Could not marshall the pet:", err)
+	}
+
+	_, err = dynamo.PutItem(&dynamodb.PutItemInput{
+		Item:      av,
+		TableName: &table,
+	})
+
+	if err != nil {
+		log.Fatalln("Could not put the item:", err)
+	}
+
+	fmt.Printf("A new pet was added\n")
+	readeable(item)
+}
+
+func randomPetName() string {
+	return petname.Generate(2, "-")
+}
+
+func readeable(i interface{}) {
+	out, _ := json.MarshalIndent(i, "", " ")
+	fmt.Println(string(out))
 }
